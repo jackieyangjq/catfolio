@@ -162,6 +162,13 @@ def test_lab_page_has_no_dead_links_or_missing_assets():
     assert 'href="/sentiment"' not in html
 
 
+def test_holdings_rows_do_not_link_to_removed_price_target_history_page():
+    script = (Path(__file__).parents[1] / "app" / "static" / "portfolio-holdings.js").read_text(encoding="utf-8")
+
+    assert "/price-target-history" not in script
+    assert '<span class="portfolio-holding-identity">' in script
+
+
 def test_portfolio_card_radii_match_figma():
     css_path = Path(__file__).parents[1] / "app" / "static" / "portfolio.css"
     css = css_path.read_text(encoding="utf-8")
