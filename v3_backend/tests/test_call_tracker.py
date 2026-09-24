@@ -1,12 +1,14 @@
 """Call tracker tests. Everything runs offline; prices come from fakes or the fictional demo."""
 from datetime import date, datetime, timedelta, timezone
 import json
+from pathlib import Path
 
 import pytest
 
 from app import call_tracker as ct
 
 NOW = datetime(2026, 6, 30, 22, 0, tzinfo=timezone.utc)
+STATIC = Path(__file__).parents[1] / 'app' / 'static'
 DIGEST_ROW = {'date': '2026-01-02', 'channel': '示例频道', 'video_id': 'abcDEF12345', 'symbol': 'NVDA',
               'name': '英伟达', 'stance': '看多', 'reason': '需求强劲'}
 
@@ -371,3 +373,13 @@ def test_demo_is_deterministic_offline_and_fictional(monkeypatch):
     assert table['demo'] and table['sources'][-1]['status'] == 'watch'
     lead = ct.summary(21, first)['sources'][0]
     assert (lead['source'], lead['hits'], lead['scored']) == ('示例博主·甲', 25, 35)
+
+
+# ── client-side i18n ───────────────────────────────────────────────────────────
+
+def test_client_i18n_leaves_translate_no_content_alone():
+    script = (STATIC / 'client_i18n.js').read_text(encoding='utf-8')
+    assert 'const KEEP = "[translate=\'no\']";' in script
+    assert 'root.parentElement.closest(KEEP)' in script
+    assert 'root.closest && root.closest(KEEP)' in script
+    assert 'parent.closest(KEEP)' in script
