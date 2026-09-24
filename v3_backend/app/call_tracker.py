@@ -10,9 +10,11 @@ never fetch prices; only ``compute_outcomes`` does.
 from bisect import bisect_left, bisect_right
 from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
+from functools import lru_cache
 import json
 import math
 from pathlib import Path
+import random
 import re
 import sqlite3
 from statistics import median
@@ -640,3 +642,107 @@ def events(source='', horizon=DEFAULT_HORIZON, page=1, dataset=None, page_size=P
                           outcome=outcome))
     return dict(total=len(calls), page=page, page_size=page_size,
                 pages=max(1, math.ceil(len(calls) / page_size)), horizon=horizon, items=items)
+
+
+# ── demo data ──────────────────────────────────────────────────────────────────
+
+DEMO_SEED = 20260923
+DEMO_START, DEMO_END = '2025-06-02', '2026-09-18'
+# symbol, start price, beta to the fictional market, idiosyncratic daily volatility
+DEMO_TICKERS = (
+    ('AAPL', 212.0, 1.0, .012), ('MSFT', 455.0, .9, .011), ('NVDA', 132.0, 1.6, .026),
+    ('AMZN', 205.0, 1.2, .016), ('GOOGL', 172.0, 1.1, .015), ('META', 640.0, 1.3, .019),
+    ('TSLA', 330.0, 1.8, .032), ('AMD', 118.0, 1.7, .027), ('AVGO', 245.0, 1.4, .022),
+    ('COST', 1010.0, .7, .010), ('NFLX', 1180.0, 1.0, .018), ('JPM', 262.0, .9, .012),
+    ('0700.HK', 505.0, .8, .018),
+)
+# zh name, en name, calls, hit skill at 21 sessions, bearish share, neutral share, first/last call day
+DEMO_SOURCES = (
+    ('示例博主·甲', 'Sample blogger A', 44, .66, .15, .10, '2025-09-01', '2026-09-11'),
+    ('示例博主·乙', 'Sample blogger B', 38, .50, .20, .13, '2025-09-15', '2026-09-11'),
+    ('示例机构', 'Sample institution', 26, .58, .30, .08, '2025-10-01', '2026-08-28'),
+    ('示例博主·丙', 'Sample blogger C', 12, .42, .15, .10, '2026-04-01', '2026-09-11'),
+)
+DEMO_REASONS = {
+    'bullish': (('业绩超预期，管理层上调全年指引。', 'Results beat expectations and guidance was raised.'),
+                ('估值回到近三年低位，适合分批建仓。', 'Valuation is near a three-year low; building in stages.'),
+                ('新产品周期刚开始，订单能见度高。', 'A new product cycle is starting with good order visibility.'),
+                ('回调到长期均线附近，风险收益比合适。', 'Pulled back to its long-term average; fair risk/reward.')),
+    'bearish': (('估值偏高，增速开始放缓。', 'Valuation looks stretched while growth slows.'),
+                ('竞争加剧，利润率承压。', 'Competition is rising and margins are under pressure.'),
+                ('短期涨幅过大，获利回吐风险高。', 'Up too far too fast; profit-taking risk is high.')),
+    'neutral': (('等财报确认方向，暂时观望。', 'Waiting for earnings to confirm the direction.'),
+                ('区间震荡，没有明确信号。', 'Range-bound with no clear signal.')),
+}
+
+
+@lru_cache(maxsize=1)
+def _demo_base():
+    """Fictional sources, calls and price paths from a fixed seed. Only Random.random() is used:
+    its sequence for an integer seed is stable across Python versions."""
+    rng = random.Random(DEMO_SEED)
+    uniform = rng.random
+
+    def normal():
+        return math.sqrt(-2 * math.log(1 - uniform())) * math.cos(2 * math.pi * uniform())
+
+    def pick(items):
+        return items[min(len(items) - 1, int(uniform() * len(items)))]
+
+    sessions, day = [], date.fromisoformat(DEMO_START)
+    while day.isoformat() <= DEMO_END:
+        if day.weekday() < 5:
+            sessions.append(day.isoformat())
+        day += timedelta(days=1)
+    market = [normal() for _ in sessions]
+    prices = {BENCHMARK: []}
+    level = 560.0
+    for day, shock in zip(sessions, market):
+        level *= math.exp(.0003 + .0085 * shock)
+        prices[BENCHMARK].append((day, round(level, 2)))
+    for symbol, start, beta, vol in DEMO_TICKERS:
+        level, rows = start, []
+        for day, shock in zip(sessions, market):
+            level *= math.exp(.0001 + beta * .0085 * shock + vol * normal())
+            rows.append((day, round(level, 2)))
+        prices[symbol] = rows
+    closes = {symbol: [c for _, c in rows] for symbol, rows in prices.items()}
+    symbols = [t[0] for t in DEMO_TICKERS]
+    calls, seen = [], set()
+    for zh, en, count, skill, bearish, neutral, first, last in DEMO_SOURCES:
+        window = [i for i, d in enumerate(sessions) if first <= d <= last]
+        made = 0
+        while made < count:
+            i = pick(window)
+            roll = uniform()
+            stance = 'neutral' if roll < neutral else 'bearish' if roll < neutral + bearish else 'bullish'
+            wants_hit = uniform() < skill
+            entry, exit_ = i + 1, i + 22  # plant the skill on the 21-session outcome
+            pool = symbols
+            if stance != 'neutral' and exit_ < len(sessions):
+                rises = (stance == 'bullish') == wants_hit
+                pool = [s for s in symbols if (closes[s][exit_] > closes[s][entry]) == rises] or symbols
+            ticker = pick(pool)
+            reason = int(uniform() * len(DEMO_REASONS[stance]))
+            if (zh, sessions[i], ticker) in seen:
+                continue
+            seen.add((zh, sessions[i], ticker))
+            calls.append(dict(source=(zh, en), call_date=sessions[i], ticker=ticker, stance=stance, reason=reason))
+            made += 1
+    calls.sort(key=lambda c: (c['call_date'], c['source'][0], c['ticker']))
+    return calls, prices
+
+
+@lru_cache(maxsize=2)
+def demo_dataset(lang='zh'):
+    """Deterministic, offline demo: 4 fictional sources, 120 calls, fictional prices."""
+    base_calls, prices = _demo_base()
+    column = 1 if lang == 'en' else 0
+    calls = [dict(id=number, source=call['source'][column], call_date=call['call_date'], ticker=call['ticker'],
+                  yahoo_symbol=call['ticker'], name=None, stance=call['stance'],
+                  reason=DEMO_REASONS[call['stance']][call['reason']][column], url=None,
+                  imported_at=DEMO_END + 'T21:00:00+00:00')
+             for number, call in enumerate(base_calls, 1)]
+    meta = dict(computed_at=DEMO_END + 'T21:30:00+00:00', imported_at=DEMO_END + 'T21:00:00+00:00',
+                price_as_of=DEMO_END)
+    return dict(calls=calls, outcomes=score_all(calls, prices, DEMO_END), prices=prices, meta=meta, demo=True)

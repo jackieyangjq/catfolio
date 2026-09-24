@@ -349,3 +349,25 @@ def test_refresh_rereads_the_remembered_file(tmp_path):
         handle.write(line(date='2026-01-05') + '\n')
     result = ct.refresh(lambda symbols: (_prices_for(symbols), []), db_path=db, now=NOW)
     assert result['imported']['inserted'] == 1 and result['computed']['calls'] == 2
+
+
+# ── demo ───────────────────────────────────────────────────────────────────────
+
+def test_demo_is_deterministic_offline_and_fictional(monkeypatch):
+    monkeypatch.setattr(ct, 'yahoo_prices', lambda *args, **kwargs: pytest.fail('demo must not fetch prices'))
+    ct._demo_base.cache_clear()
+    ct.demo_dataset.cache_clear()
+    first = ct.demo_dataset('zh')
+    ct._demo_base.cache_clear()
+    ct.demo_dataset.cache_clear()
+    assert ct.demo_dataset('zh') == first
+    assert len(first['calls']) == 120
+    assert {c['source'] for c in first['calls']} == {'示例博主·甲', '示例博主·乙', '示例博主·丙', '示例机构'}
+    assert {c['source'] for c in ct.demo_dataset('en')['calls']} == {
+        'Sample blogger A', 'Sample blogger B', 'Sample blogger C', 'Sample institution'}
+    assert all(c['url'] is None for c in first['calls'])
+    assert {'scored', 'pending', 'neutral'} <= {o['status'] for o in first['outcomes'].values()}
+    table = ct.summary(63, first)
+    assert table['demo'] and table['sources'][-1]['status'] == 'watch'
+    lead = ct.summary(21, first)['sources'][0]
+    assert (lead['source'], lead['hits'], lead['scored']) == ('示例博主·甲', 25, 35)
