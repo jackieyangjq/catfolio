@@ -234,7 +234,7 @@ The Call tracker (`/calls`) keeps score of dated stock calls from any source: a 
 ```
 
 - Required fields: `date` (YYYY-MM-DD), `source` (or `channel`), `symbol` (or `ticker`) and `stance` (`bullish`, `bearish` or `neutral`; the Chinese labels 看多, 看空 and 中性 also work). Optional: `name`, `reason`, and `url` or a YouTube `video_id`. The `calls.jsonl` written by [finfluencer-digest](https://github.com/jackieyangjq/finfluencer-digest) imports as is.
-- Only the first call per source, day and ticker is kept, so re-importing a growing file adds just the new lines. Hong Kong codes such as `700.HK` become Yahoo's `0700.HK`.
+- Only the first call per source, day and ticker is kept, so re-importing a growing file adds just the new lines. Hong Kong codes such as `700.HK` become Yahoo's `0700.HK`, and bare crypto tickers (`BTC`, `ETH`, `SOL`, `DOGE`, `XRP`) become Yahoo's `-USD` pairs, because Yahoo's `BTC` is a bitcoin fund, not bitcoin.
 - Scoring: the entry is the first close after the call date and the exit is 5, 21 or 63 trading days later. Bearish calls count the negated return, and excess return is measured against SPY held in the same direction. Calls still inside their window, and calls without prices, stay out of every denominator; sources with fewer than 10 scored calls are marked as too early to judge.
 - Prices are Yahoo daily closes from the cache Strategy Lab uses. Calls, prices and results stay in `CATFOLIO_DATA_DIR`. Demo mode shows four fictional sources with generated prices and never fetches data.
 

@@ -74,6 +74,10 @@ _STANCES = {
 _SYMBOL = re.compile(r'\^?[A-Z0-9][A-Z0-9.=-]{0,23}')
 _US_LISTING = re.compile(r'[A-Z][A-Z0-9]*(-[A-Z])?')  # plain US tickers, incl. class shares like BRK-B
 _VIDEO_ID = re.compile(r'[A-Za-z0-9_-]{6,20}')
+# Calls name coins by their bare ticker, but on Yahoo "BTC" is a US-listed fund (Grayscale
+# Bitcoin Mini Trust ETF), not bitcoin itself; ETH and XRP are funds too, and SOL and DOGE do not
+# exist. The coins trade as the -USD pairs.
+_CRYPTO_USD = {'BTC': 'BTC-USD', 'ETH': 'ETH-USD', 'SOL': 'SOL-USD', 'DOGE': 'DOGE-USD', 'XRP': 'XRP-USD'}
 
 
 class CallImportError(ValueError):
@@ -96,10 +100,12 @@ def normalize_stance(value):
 
 def normalize_symbol(value):
     """Return (ticker, yahoo_symbol). US tickers pass through, class shares show as BRK.B and
-    price as Yahoo's BRK-B, and HK codes use Yahoo's 4-digit form (700.HK -> 0700.HK)."""
+    price as Yahoo's BRK-B, HK codes use Yahoo's 4-digit form (700.HK -> 0700.HK) and bare
+    crypto tickers become Yahoo's -USD pairs (BTC -> BTC-USD)."""
     symbol = str(value or '').strip().upper().lstrip('$')
     if symbol.endswith('.US'):
         symbol = symbol[:-3]
+    symbol = _CRYPTO_USD.get(symbol, symbol)
     if symbol.endswith('.HK') and symbol[:-3].isdigit():
         symbol = f'{int(symbol[:-3]):04d}.HK'
     share_class = re.fullmatch(r'([A-Z]+)[.-]([AB])', symbol)
@@ -164,6 +170,30 @@ def _set_meta(conn, **values):
     conn.executemany('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', values.items())
 
 
+def _normalise_stored_symbols(conn):
+    """Re-apply the symbol rules to calls stored before them (BTC -> BTC-USD); the caller commits.
+
+    The de-duplication key moves with the ticker, so re-importing the same file adds nothing;
+    if both spellings were stored, the earlier call wins. Outcomes of rewritten calls priced the
+    wrong instrument, so they are dropped until the next recalculation."""
+    marks = ', '.join('?' * len(_CRYPTO_USD))
+    rows = conn.execute(f'SELECT id, source, call_date, ticker FROM calls WHERE ticker IN ({marks}) ORDER BY id',
+                        tuple(_CRYPTO_USD)).fetchall()
+    for row in rows:
+        ticker, yahoo_symbol = normalize_symbol(row['ticker'])
+        key = dedupe_key(dict(source=row['source'], call_date=row['call_date'], ticker=ticker))
+        twin = conn.execute('SELECT id FROM calls WHERE dedupe_key = ?', (key,)).fetchone()
+        if twin and twin['id'] < row['id']:
+            conn.execute('DELETE FROM calls WHERE id = ?', (row['id'],))
+            continue
+        if twin:
+            conn.execute('DELETE FROM calls WHERE id = ?', (twin['id'],))
+        conn.execute('UPDATE calls SET ticker = ?, yahoo_symbol = ?, dedupe_key = ? WHERE id = ?',
+                     (ticker, yahoo_symbol, key, row['id']))
+        conn.execute('DELETE FROM outcomes WHERE call_id = ?', (row['id'],))
+    return len(rows)
+
+
 def _read_lines(path_or_lines):
     if isinstance(path_or_lines, (str, Path)):
         path = Path(path_or_lines).expanduser()
@@ -197,6 +227,7 @@ def import_jsonl(path_or_lines, source_field='channel', db_path=None, now=None):
     counts = dict(read=0, inserted=0, duplicates=0, invalid=0)
     errors = []
     with closing(connect(db_path)) as conn, conn:
+        _normalise_stored_symbols(conn)
         for number, line in enumerate(lines, 1):
             text = line.strip()
             if not text:
@@ -408,6 +439,8 @@ def compute_outcomes(price_source=None, db_path=None, now=None):
     symbol the source cannot deliver this time falls back to the last stored series."""
     now = now or datetime.now(timezone.utc)
     with closing(connect(db_path)) as conn:
+        with conn:
+            _normalise_stored_symbols(conn)
         calls = [dict(row) for row in conn.execute(f'SELECT {", ".join(CALL_FIELDS)} FROM calls ORDER BY id')]
         stats = {str(h): dict.fromkeys(('scored', 'neutral', 'pending', 'missing_price'), 0) for h in HORIZONS}
         if not calls:
