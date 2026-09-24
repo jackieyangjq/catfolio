@@ -1,5 +1,26 @@
 # Catfolio — Local-first Portfolio, Quant, and Strategy Dashboard
 
+## About this fork
+
+This is a fork of [irrwood/catfolio](https://github.com/irrwood/catfolio). Thanks to [irrwood](https://github.com/irrwood) for building Catfolio and releasing it under the MIT License. The fork adds three things:
+
+- **Longbridge account sync**: connect a Longbridge OpenAPI app in Settings → Accounts to sync holdings and cash read-only. The SDK is an optional install; see [docs/web-account-sync.md](docs/web-account-sync.md#longbridge).
+  - Upstream PR: pending
+- **Call tracker workspace** (`/calls`): import dated stock calls from any source (a blogger, a newsletter, an analyst note or your own journal) and score them against the prices that followed, 5, 21 and 63 trading days out, with SPY as the benchmark. Each source gets a hit rate, a follow-every-call curve and a monthly hit rate. Details in [Call Tracker](#call-tracker).
+  - Upstream PR: pending
+- **Small fixes**: Moomoo's Hong Kong symbols are zero-padded to the four-digit form Yahoo accepts (`HK.00700` → `0700.HK`), HKD is added to the Lab and CSV import FX tables, and dead links to the missing `/sentiment` and price-target-history pages are removed.
+  - Upstream PRs: pending (HK symbols and HKD FX), pending (dead links)
+
+| Call tracker: sources compared | Call tracker: one source |
+| --- | --- |
+| ![Call tracker comparing four fictional sources in demo mode](docs/screenshots/fork/call-tracker-overview.png) | ![Call tracker detail for one fictional source in demo mode](docs/screenshots/fork/call-tracker-source.png) |
+
+Both screenshots use demo mode, so the sources, calls and prices are fictional. To try the additions, clone this fork (`https://github.com/jackieyangjq/catfolio.git`) instead of the upstream repository used in the Quick Start below.
+
+Everything else is upstream Catfolio; see the original README below.
+
+---
+
 Catfolio is a self-hosted portfolio dashboard and quantitative research workspace for investors who want a private command center for holdings, returns, risk, strategy experiments, and AI-assisted analysis.
 
 It runs locally as a web app, can be packaged as a macOS desktop app, and ships with a full demo mode so contributors can explore the product without a broker account or API keys.
