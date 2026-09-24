@@ -62,6 +62,8 @@ cd catfolio/v3_backend
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+# Optional, only for Longbridge account sync (Linux needs glibc 2.39+):
+# pip install -r requirements-longbridge.txt
 
 CATFOLIO_DEMO=1 uvicorn app.main:app --host 127.0.0.1 --port 8787
 ```
@@ -141,7 +143,7 @@ Catfolio works in demo mode without any keys. For live data or AI analysis, use 
 | `TELEGRAM_BOT_TOKEN` | Optional Telegram alert bot | [Telegram BotFather tutorial](https://core.telegram.org/bots/tutorial) |
 | `TELEGRAM_CHAT_ID` | Optional Telegram alert destination | [Telegram Bot API docs](https://core.telegram.org/bots/api) |
 
-Longbridge credentials are not environment variables: create an app on the [Longbridge OpenAPI portal](https://open.longbridge.com/) and paste its App Key, App Secret and Access Token into Settings → Accounts. See [docs/web-account-sync.md](docs/web-account-sync.md#longbridge).
+Longbridge credentials are not environment variables. Install the optional SDK first (`pip install -r requirements-longbridge.txt` in `v3_backend/`), then create an app on the [Longbridge OpenAPI portal](https://open.longbridge.com/) and paste its App Key, App Secret and Access Token into Settings → Accounts. See [docs/web-account-sync.md](docs/web-account-sync.md#longbridge).
 
 Keep provider keys out of git. Use `.env`, macOS Keychain, or another local secret store, and prefer separate keys with spending limits where providers support them.
 

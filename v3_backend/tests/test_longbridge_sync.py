@@ -213,6 +213,7 @@ def test_longbridge_missing_sdk_has_install_hint(monkeypatch):
     with pytest.raises(LongbridgeError) as error:
         LongbridgeAdapter(LongbridgeConfig(**CREDENTIALS)).fetch_snapshot()
     assert error.value.reason == "sdk"
+    assert "pip install -r requirements-longbridge.txt" in str(error.value)
 
 
 def test_longbridge_config_requires_credentials_and_hides_them():

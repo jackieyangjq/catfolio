@@ -37,6 +37,6 @@ EN = {
     '长桥拒绝了访问。请确认这组凭证可以读取持仓、资金和行情，且当前 IP 未被限制。现有数据已保留。': 'Longbridge denied access. Check that these credentials can read holdings, cash and quotes, and that your IP address is not blocked. Your existing data is unchanged.',
     '无法连接长桥服务器，请检查网络后重试。现有数据已保留。': 'Could not reach Longbridge. Check your network connection and try again. Your existing data is unchanged.',
     '长桥未返回账户标识，请在连接配置中填写账户 ID 后重试。现有数据已保留。': 'Longbridge did not return an account identifier. Enter the account ID in the connection settings and try again. Your existing data is unchanged.',
-    '未安装长桥开发包（longbridge），请先安装项目依赖后重试。现有数据已保留。': 'The Longbridge SDK (longbridge) is not installed. Install the project dependencies and try again. Your existing data is unchanged.',
+    '未安装长桥开发包。请在 v3_backend 目录运行 pip install -r requirements-longbridge.txt 后重试。现有数据已保留。': 'The Longbridge SDK is not installed. Run pip install -r requirements-longbridge.txt in the v3_backend folder, then try again. Your existing data is unchanged.',
     '长桥连接失败，请检查凭证和网络后重试。现有数据已保留。': 'Could not connect to Longbridge. Check the credentials and your network, then try again. Your existing data is unchanged.',
 }
