@@ -56,6 +56,11 @@ def test_class_shares_display_with_a_dot_and_price_with_a_dash(raw):
     assert ct.normalize_symbol(raw) == ('BRK.B', 'BRK-B')
 
 
+@pytest.mark.parametrize('raw, expected', [('BTC', 'BTC-USD'), ('$eth', 'ETH-USD')])
+def test_bare_crypto_tickers_map_to_yahoo_usd_pairs(raw, expected):
+    assert ct.normalize_symbol(raw) == (expected, expected)  # Yahoo's bare BTC is a fund
+
+
 @pytest.mark.parametrize('raw', ['', None, '腾讯', 'A B', 'X' * 30])
 def test_invalid_symbols_are_rejected(raw):
     with pytest.raises(ValueError):
@@ -348,6 +353,35 @@ def test_compute_stores_outcomes_and_reuses_saved_prices_when_a_fetch_fails(tmp_
     assert retry['reused_symbols'] == ['AAA', 'BBB', 'SPY']
     assert retry['statuses'] == stats['statuses']
     assert ct.load_dataset(db)['outcomes'] == data['outcomes']
+
+
+def test_stored_bare_crypto_calls_are_renamed_so_reimports_add_no_duplicates(tmp_path):
+    db, source = tmp_path / 'calls.db', tmp_path / 'calls.jsonl'
+    source.write_text(line(symbol='BTC', name='比特币') + '\n', encoding='utf-8')
+    conn = ct.connect(db)
+    with conn:  # as an earlier version stored them: bare BTC, plus a BTC-USD twin imported later
+        for ticker in ('BTC', 'BTC-USD'):
+            conn.execute('INSERT INTO calls (source, call_date, ticker, yahoo_symbol, stance, imported_at, dedupe_key) '
+                         "VALUES ('示例频道', '2026-01-02', ?, ?, 'bullish', '', ?)",
+                         (ticker, ticker, f'示例频道|2026-01-02|{ticker}'))
+        conn.execute("INSERT INTO outcomes (call_id, horizon_days, status) VALUES (1, 5, 'scored')")
+    conn.close()
+    first = ct.import_jsonl(source, db_path=db)
+    assert (first['inserted'], first['duplicates']) == (0, 1)
+    data = ct.load_dataset(db)
+    assert [(c['id'], c['ticker'], c['yahoo_symbol']) for c in data['calls']] == [(1, 'BTC-USD', 'BTC-USD')]
+    assert data['outcomes'] == {}  # they priced the fund; the next recalculation redoes them
+    fetched = []
+
+    def prices(symbols):
+        fetched.append(list(symbols))
+        return _prices_for(symbols), []
+
+    again = ct.refresh(prices, db_path=db, now=NOW)
+    assert (again['imported']['inserted'], again['imported']['duplicates']) == (0, 1)
+    assert fetched == [['BTC-USD', 'SPY']]
+    data = ct.load_dataset(db)
+    assert len(data['calls']) == 1 and data['outcomes'][(1, 63)]['status'] == 'scored'
 
 
 def test_refresh_rereads_the_remembered_file(tmp_path):
