@@ -7,6 +7,8 @@ cryptography>=42.0.0
 python-multipart>=0.0.9
 imap-tools>=1.14.0,<2.0
 futu-api>=10.0.6008
+# Longbridge account sync; imported only when a Longbridge account is previewed.
+longbridge>=5.1,<6
 
 # Exchange sessions for independent sector-rotation snapshots (holiday/DST aware).
 exchange-calendars>=4.5,<5
