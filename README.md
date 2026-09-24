@@ -5,11 +5,11 @@
 This is a fork of [irrwood/catfolio](https://github.com/irrwood/catfolio). Thanks to [irrwood](https://github.com/irrwood) for building Catfolio and releasing it under the MIT License. The fork adds three things:
 
 - **Longbridge account sync**: connect a Longbridge OpenAPI app in Settings → Accounts to sync holdings and cash read-only. The SDK is an optional install; see [docs/web-account-sync.md](docs/web-account-sync.md#longbridge).
-  - Upstream PR: pending
+  - Upstream PR: [#6](https://github.com/irrwood/catfolio/pull/6)
 - **Call tracker workspace** (`/calls`): import dated stock calls from any source (a blogger, a newsletter, an analyst note or your own journal) and score them against the prices that followed, 5, 21 and 63 trading days out, with SPY as the benchmark. Each source gets a hit rate, a follow-every-call curve and a monthly hit rate. Details in [Call Tracker](#call-tracker).
-  - Upstream PR: pending
+  - Upstream PR: [#7](https://github.com/irrwood/catfolio/pull/7)
 - **Small fixes**: Moomoo's Hong Kong symbols are zero-padded to the four-digit form Yahoo accepts (`HK.00700` → `0700.HK`), HKD is added to the Lab and CSV import FX tables, and dead links to the missing `/sentiment` and price-target-history pages are removed.
-  - Upstream PRs: pending (HK symbols and HKD FX), pending (dead links)
+  - Upstream PRs: [#4](https://github.com/irrwood/catfolio/pull/4) (HK symbols and HKD FX), [#5](https://github.com/irrwood/catfolio/pull/5) (dead links)
 
 | Call tracker: sources compared | Call tracker: one source |
 | --- | --- |
