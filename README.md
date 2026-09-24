@@ -2,6 +2,8 @@
 
 ## About this fork
 
+**English** | [简体中文](docs/ABOUT_FORK.zh-CN.md)
+
 This is a fork of [irrwood/catfolio](https://github.com/irrwood/catfolio). Thanks to [irrwood](https://github.com/irrwood) for building Catfolio and releasing it under the MIT License. The fork adds three things:
 
 - **Longbridge account sync**: connect a Longbridge OpenAPI app in Settings → Accounts to sync holdings and cash read-only. The SDK is an optional install; see [docs/web-account-sync.md](docs/web-account-sync.md#longbridge).
