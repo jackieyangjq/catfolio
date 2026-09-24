@@ -45,10 +45,15 @@ def line(**changes):
 
 @pytest.mark.parametrize('raw, expected', [
     ('aapl', 'AAPL'), (' $tsla ', 'TSLA'), ('700.HK', '0700.HK'), ('00700.hk', '0700.HK'),
-    ('9988.HK', '9988.HK'), ('AAPL.US', 'AAPL'), ('BRK-B', 'BRK-B'),
+    ('9988.HK', '9988.HK'), ('AAPL.US', 'AAPL'), ('VOD.L', 'VOD.L'),
 ])
 def test_symbols_normalise_to_the_yahoo_form(raw, expected):
     assert ct.normalize_symbol(raw) == (expected, expected)
+
+
+@pytest.mark.parametrize('raw', ['BRK.B', 'brk-b', 'BRK.B.US'])
+def test_class_shares_display_with_a_dot_and_price_with_a_dash(raw):
+    assert ct.normalize_symbol(raw) == ('BRK.B', 'BRK-B')
 
 
 @pytest.mark.parametrize('raw', ['', None, '腾讯', 'A B', 'X' * 30])

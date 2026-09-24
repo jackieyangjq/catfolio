@@ -95,12 +95,16 @@ def normalize_stance(value):
 
 
 def normalize_symbol(value):
-    """Return (ticker, yahoo_symbol). US tickers pass through; HK codes use Yahoo's 4-digit form."""
+    """Return (ticker, yahoo_symbol). US tickers pass through, class shares show as BRK.B and
+    price as Yahoo's BRK-B, and HK codes use Yahoo's 4-digit form (700.HK -> 0700.HK)."""
     symbol = str(value or '').strip().upper().lstrip('$')
     if symbol.endswith('.US'):
         symbol = symbol[:-3]
     if symbol.endswith('.HK') and symbol[:-3].isdigit():
         symbol = f'{int(symbol[:-3]):04d}.HK'
+    share_class = re.fullmatch(r'([A-Z]+)[.-]([AB])', symbol)
+    if share_class:
+        return f'{share_class[1]}.{share_class[2]}', f'{share_class[1]}-{share_class[2]}'
     if not _SYMBOL.fullmatch(symbol):
         raise ValueError('symbol')
     return symbol, symbol
