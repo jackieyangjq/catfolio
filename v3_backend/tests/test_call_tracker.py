@@ -2,8 +2,10 @@
 from datetime import date, datetime, timedelta, timezone
 import json
 from pathlib import Path
+import re
 
 import pytest
+from fastapi.testclient import TestClient
 
 from app import call_tracker as ct
 
@@ -373,6 +375,145 @@ def test_demo_is_deterministic_offline_and_fictional(monkeypatch):
     assert table['demo'] and table['sources'][-1]['status'] == 'watch'
     lead = ct.summary(21, first)['sources'][0]
     assert (lead['source'], lead['hits'], lead['scored']) == ('示例博主·甲', 25, 35)
+
+
+# ── API and page ───────────────────────────────────────────────────────────────
+
+def fake_yahoo(symbols, start_date=None, now=None):
+    return _prices_for(symbols), []
+
+
+@pytest.fixture
+def real_client(monkeypatch, tmp_path):
+    from app.main import app
+    from app.routes import call_tracker as route
+
+    monkeypatch.delenv('CATFOLIO_PUBLIC_DEMO', raising=False)
+    monkeypatch.setattr(ct, 'DB_PATH', tmp_path / 'call_tracker.db')
+    monkeypatch.setattr(ct, 'yahoo_prices', fake_yahoo)
+    monkeypatch.setattr(route, 'demo_mode', lambda: False)
+    return TestClient(app)
+
+
+def test_api_imports_computes_and_pages_calls(real_client, tmp_path):
+    assert real_client.get('/api/calls/summary').json()['empty'] is True
+    source = tmp_path / 'calls.jsonl'
+    source.write_text('\n'.join([line(), line(), line(symbol='AAPL', channel='A/B 资本'), line(symbol='MSFT', stance='中性')]),
+                      encoding='utf-8')
+    imported = real_client.post('/api/calls/import', json={'path': str(source)}).json()
+    assert (imported['ok'], imported['inserted'], imported['duplicates']) == (True, 3, 1)
+    upload = real_client.post('/api/calls/import', files={'file': ('more.jsonl', line(symbol='TSLA').encode(), 'application/json')})
+    assert upload.json()['inserted'] == 1
+    before = real_client.get('/api/calls/summary').json()
+    assert before['totals']['calls'] == 4 and before['totals']['uncomputed'] == 3 and before['updated_at'] is None
+    refreshed = real_client.post('/api/calls/refresh').json()
+    assert refreshed['imported']['inserted'] == 0 and refreshed['computed']['calls'] == 4
+    table = real_client.get('/api/calls/summary?horizon=5').json()
+    assert table['totals']['scored'] == 3 and table['totals']['neutral'] == 1 and table['price_as_of']
+    assert {r['source'] for r in table['sources']} == {'示例频道', 'A/B 资本'}
+    detail = real_client.get('/api/calls/source/A%2FB%20%E8%B5%84%E6%9C%AC', params={'horizon': 21}).json()
+    assert detail['source'] == 'A/B 资本' and detail['metrics']['scored'] == 1 and detail['curve']['calls'] == 1
+    events = real_client.get('/api/calls/events', params={'source': '示例频道', 'horizon': 63}).json()
+    assert events['total'] == 3 and [e['ticker'] for e in events['items']] == ['TSLA', 'MSFT', 'NVDA']
+    assert events['items'][2]['url'] == 'https://www.youtube.com/watch?v=abcDEF12345'
+    assert real_client.get('/api/calls/events', params={'page': 9}).json()['items'] == []
+
+
+@pytest.mark.parametrize('path, status', [
+    ('/api/calls/summary?horizon=7', 422), ('/api/calls/events?page=0', 422),
+    ('/api/calls/source/nobody', 404), ('/api/calls/source/nobody?horizon=10', 422),
+])
+def test_api_validates_parameters(real_client, path, status):
+    assert real_client.get(path).status_code == status
+
+
+@pytest.mark.parametrize('payload, code', [
+    ({'path': 'calls.jsonl'}, 'relative_path'), ({'path': '/no/such/calls.jsonl'}, 'not_found'),
+    ({}, 'no_file'), ([], 'no_file'),
+])
+def test_import_errors_carry_codes_the_page_can_translate(real_client, payload, code):
+    response = real_client.post('/api/calls/import', json=payload)
+    assert response.status_code == 400 and response.json()['detail']['code'] == code
+
+
+def test_oversized_uploads_are_refused(real_client, monkeypatch):
+    monkeypatch.setattr(ct, 'MAX_IMPORT_BYTES', 10)
+    response = real_client.post('/api/calls/import', files={'file': ('calls.jsonl', line().encode(), 'application/json')})
+    assert response.status_code == 400 and response.json()['detail']['code'] == 'too_large'
+
+
+def test_demo_mode_serves_fictional_data_and_refuses_writes(monkeypatch):
+    from app.main import app
+    from app.routes import call_tracker as route
+
+    monkeypatch.delenv('CATFOLIO_PUBLIC_DEMO', raising=False)
+    monkeypatch.setattr(route, 'demo_mode', lambda: True)
+    monkeypatch.setattr(ct, 'load_dataset', lambda *args, **kwargs: pytest.fail('demo must not read local calls'))
+    client = TestClient(app)
+    table = client.get('/api/calls/summary', headers={'Cookie': 'catfolio_lang=zh'}).json()
+    assert table['demo'] and len(table['sources']) == 4
+    assert client.get('/api/calls/source/Sample blogger A', headers={'Cookie': 'catfolio_lang=en'}).status_code == 200
+    for path in ('/api/calls/import', '/api/calls/refresh'):
+        response = client.post(path, json={'path': '/tmp/calls.jsonl'})
+        assert response.status_code == 409 and response.json()['detail']['code'] == 'demo'
+
+
+def test_public_demo_blocks_imports(monkeypatch, tmp_path):
+    from app import data_store
+    from app.main import app
+
+    monkeypatch.setenv('CATFOLIO_PUBLIC_DEMO', '1')
+    monkeypatch.setattr(data_store, '_DEMO_FLAG', tmp_path / 'demo_mode.flag')
+    client = TestClient(app)
+    assert client.get('/api/calls/summary').json()['demo'] is True
+    for path in ('/api/calls/import', '/api/calls/refresh'):
+        response = client.post(path, json={})
+        assert response.status_code == 403
+        assert response.json()['error'] == 'This public Catfolio demo is read-only.'
+
+
+def _main(html):
+    return html[html.index('<main class="calls-page"'):html.index('</main>')]
+
+
+def test_real_page_renders_in_chinese_and_english(real_client):
+    zh = real_client.get('/calls', headers={'Cookie': 'catfolio_lang=zh'})
+    assert zh.status_code == 200
+    for contract in ('v5-shell', 'design-system.css', 'call-tracker.css', 'call-tracker.js', '观点记分牌',
+                     '仅供复盘，不构成投资建议。', 'id="calls-import-form"', 'data-demo="0"',
+                     'class="v5-nav-link active" href="/calls"'):
+        assert contract in zh.text
+    en = real_client.get('/calls', headers={'Cookie': 'catfolio_lang=en'})
+    assert '<title>Call tracker · Catfolio</title>' in en.text
+    assert 'For review only. Not investment advice.' in en.text and 'Import and calculate' in en.text
+    assert not re.findall(r'[\u4e00-\u9fff]', _main(en.text))
+
+
+def test_demo_page_has_no_import_form_and_is_fully_translated(monkeypatch):
+    from starlette.requests import Request
+    from app.routes import call_tracker as route
+
+    monkeypatch.setattr(route, 'demo_mode', lambda: True)
+    for lang in ('zh', 'en'):
+        request = Request({'type': 'http', 'method': 'GET', 'path': '/calls', 'query_string': b'',
+                           'headers': [(b'cookie', f'catfolio_lang={lang}'.encode())]})
+        html = route.page(request).body.decode('utf-8')
+        assert 'data-demo="1"' in html and 'calls-import-form' not in html
+        assert ('Turn off demo mode' in html) if lang == 'en' else ('固定随机种子' in html)
+    assert not re.findall(r'[\u4e00-\u9fff]', _main(html))
+
+
+def test_sidebar_lists_the_call_tracker_after_strategy_lab():
+    from app.components import _V5_NAV_GROUPS
+
+    items = _V5_NAV_GROUPS[0][1]
+    hrefs = [href for href, _, _ in items]
+    assert items[hrefs.index('/strategy') + 1] == ('/calls', '观点记分牌', 'list-view.svg')
+
+
+def test_page_script_marks_user_data_as_untranslated():
+    script = (STATIC / 'call-tracker.js').read_text(encoding='utf-8')
+    assert script.count("translate: 'no'") >= 3  # source names, company names and reasons
 
 
 # ── client-side i18n ───────────────────────────────────────────────────────────
